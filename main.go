@@ -1,7 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"com/parser/testGenerator"
+)
 
 func main() {
-	fmt.Println("Hello, World!")
+	testGenerator.Run()
 }
