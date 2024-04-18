@@ -28,7 +28,7 @@ func Run() {
 		fmt.Println("Error creating file")
 		return
 	}
-	writeToFile(1000, file)
+	writeToFile(24000000, file)
 }
 
 func createFile(path string) (*os.File, error) {
@@ -55,9 +55,11 @@ func createFile(path string) (*os.File, error) {
 }
 
 func writeToFile(logCount int, file *os.File) {
+	fmt.Println("Writing to file")
 	var maximumDelayMs int64 = 10000
 	stateStart := "STARTED"
 	stateFinish := "FINISHED"
+	shuffleSize := 252144
 
 	logChan := make(chan Log)
 
@@ -76,17 +78,21 @@ func writeToFile(logCount int, file *os.File) {
 			})
 		}
 
+		i := 0
 		writeLogs := func() {
 			mutex.Lock()
 			defer mutex.Unlock()
 			for _, log := range collectedLogs {
 				writeLog(log, file)
 			}
+			i = i + len(collectedLogs)
+			fmt.Printf("\rLogs written: %d / %d", i, logCount)
 		}
-
+		
 		for log := range logChan {
+
 			collectedLogs = append(collectedLogs, log)
-			if len(collectedLogs) > 1024 {
+			if len(collectedLogs) >= shuffleSize {
 				shuffleLogs()
 				writeLogs()
 				collectedLogs = collectedLogs[:0]
@@ -99,7 +105,7 @@ func writeToFile(logCount int, file *os.File) {
 	}()
 
 
-	for i := 0; i < logCount; i++ {
+	for i := 0; i < logCount / 2; i++ {
 		generatedDelay := rand.Int63n(maximumDelayMs)
 		generatedOffset := rand.Int63n(maximumDelayMs)
 		startLog := Log {
