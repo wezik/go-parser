@@ -1,9 +1,9 @@
 package main
 
 import (
-	"com/parser/testGenerator"
+	"com/parser/ui"
 )
 
 func main() {
-	testGenerator.Run()
+	ui.Start()
 }
