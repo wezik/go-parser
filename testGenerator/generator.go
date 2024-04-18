@@ -1,19 +1,20 @@
 package testGenerator
 
 import (
-	"crypto/rand"
 	"fmt"
-	"math/big"
+	"math/rand"
 	"os"
+	"sync"
 	"time"
 )
 
 type Log struct {
-	Id int
+	id int
 	state string
 	timestamp int64
-	delay *big.Int 
 }
+
+var mutex = &sync.Mutex{}
 
 func Run() {
 	args := os.Args
@@ -31,6 +32,9 @@ func Run() {
 }
 
 func createFile(path string) (*os.File, error) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	var _, err = os.Stat(path)
 	var file *os.File
 
@@ -51,35 +55,72 @@ func createFile(path string) (*os.File, error) {
 }
 
 func writeToFile(logCount int, file *os.File) {
-	maximumDelay := 10000
+	var maximumDelayMs int64 = 10000
 	stateStart := "STARTED"
-	// stateFinish := "FINISHED"
+	stateFinish := "FINISHED"
 
-	startedLogs := make([]Log, 0)
+	logChan := make(chan Log)
+
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		var collectedLogs []Log = make([]Log, 0)
+
+		shuffleLogs := func() {
+			rand.Shuffle(len(collectedLogs), func(i, j int) {
+				collectedLogs[i], collectedLogs[j] = collectedLogs[j], collectedLogs[i]
+			})
+		}
+
+		writeLogs := func() {
+			mutex.Lock()
+			defer mutex.Unlock()
+			for _, log := range collectedLogs {
+				writeLog(log, file)
+			}
+		}
+
+		for log := range logChan {
+			collectedLogs = append(collectedLogs, log)
+			if len(collectedLogs) > 1024 {
+				shuffleLogs()
+				writeLogs()
+				collectedLogs = collectedLogs[:0]
+			}
+		}
+		
+		shuffleLogs()
+		writeLogs()
+		collectedLogs = collectedLogs[:0]
+	}()
+
 
 	for i := 0; i < logCount; i++ {
-		maximumDelayInt := big.NewInt(int64(maximumDelay / 10))
-		random := rand.Reader
-		generatedDelay, err := rand.Int(random, maximumDelayInt)
-		if err != nil {
-			fmt.Println("Error generating random number")
-			return
-		}
-		log := Log{
-			Id: i,
+		generatedDelay := rand.Int63n(maximumDelayMs)
+		generatedOffset := rand.Int63n(maximumDelayMs)
+		startLog := Log {
+			id: i,
 			state: stateStart,
-			timestamp: time.Now().Unix(),
-			delay: generatedDelay,
-
+			timestamp: time.Now().Unix() + generatedOffset,
 		}
-		startedLogs = append(startedLogs, log)
-		writeLog(log, file)
+		logChan <- startLog
+		endLog := Log {
+			id: startLog.id,
+			state: stateFinish,
+			timestamp: startLog.timestamp + generatedDelay,
+		}
+		logChan <- endLog
 	}
-	
+	close(logChan)
+	wg.Wait()
 }
 
 func writeLog(log Log, file *os.File) {
-	logString := fmt.Sprintf("%d %s %d %d\n", log.Id, log.state, log.timestamp, log.delay)
+	logString := fmt.Sprintf("%d %s %d\n", log.id, log.state, log.timestamp)
 	_, err := file.WriteString(logString)
 	if err != nil {
 		fmt.Println("Error writing to file")
