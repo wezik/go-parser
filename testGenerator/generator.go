@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -23,12 +24,22 @@ func Run() {
 		return
 	}
 
+	if len(args) < 3 {
+		fmt.Println("Please provide a log count you want to generate")
+		return
+	}
+
 	file, err := createFile(args[1])
 	if err != nil {
 		fmt.Println("Error creating file")
 		return
 	}
-	writeToFile(24000000, file)
+	logCount, err := strconv.Atoi(args[2])
+	if err != nil {
+		fmt.Println("Error parsing log count, incorrect format")
+		return
+	}
+	writeToFile(logCount, file)
 }
 
 func createFile(path string) (*os.File, error) {
@@ -126,7 +137,7 @@ func writeToFile(logCount int, file *os.File) {
 }
 
 func writeLog(log Log, file *os.File) {
-	logString := fmt.Sprintf("%d %s %d\n", log.id, log.state, log.timestamp)
+	logString := fmt.Sprintf("{ id:%d, state:\"%s\", timestamp:%d },", log.id, log.state, log.timestamp)
 	_, err := file.WriteString(logString)
 	if err != nil {
 		fmt.Println("Error writing to file")
