@@ -3,7 +3,8 @@ package ui
 import (
 	"bufio"
 	"com/parser/logParser"
-	"com/parser/testGenerator"
+	"com/parser/generator"
+	"com/parser/utils"
 	"fmt"
 	"os"
 	"strconv"
@@ -23,9 +24,13 @@ const (
 	askFileName = "File name: "
 )
 
-func Start() {
-	scanner := bufio.NewScanner(os.Stdin)
+var scanner *bufio.Scanner
 
+func init() {
+	scanner = bufio.NewScanner(os.Stdin)
+}
+
+func Start() {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
@@ -35,26 +40,46 @@ func Start() {
 	shouldQuit := false
 
 	for !shouldQuit {
-		switch readUserInput(menuLine, scanner) {
+		switch readUserInput(menuLine) {
 		case "1":
 			logParser.Parse()
 		case "2":
-			logCountString := readUserInput(askLogCount, scanner)
-			fileName := readUserInput(askFileName, scanner)
-			logCount, err := strconv.Atoi(logCountString)
+			err := handleInputGenerate()
 			if err != nil {
 				continue
 			}
-			testGenerator.Run(logCount, fileName)
 		case "q", "quit":
 			shouldQuit = true	
 		}
 	}
 }
 
-func readUserInput(prefix string, scanner *bufio.Scanner) string {
+func readUserInput(prefix string) string {
 	fmt.Print(prefix)
 	scanner.Scan()
 	input := strings.Trim(scanner.Text(), " ")
 	return strings.ToLower(input)
+}
+
+func handleInputGenerate() error {
+	logCountString := readUserInput(askLogCount)
+	fileName := readUserInput(askFileName)
+
+	file, err := utils.CreateFile(fileName)
+	if err != nil {
+		fmt.Println("Error when creating the file")
+		return err
+	}
+	defer file.Close()
+
+	logCount, err := strconv.Atoi(logCountString)
+	if err != nil {
+		fmt.Println("Error when parsing log count, incorrect format")
+		return err
+	}
+
+	generator.GenerateToFile(file, logCount)
+	
+	fmt.Println("Generation success")
+	return nil
 }
