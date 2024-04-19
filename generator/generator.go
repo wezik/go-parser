@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,9 +28,21 @@ func (l *Log) String() string {
 
 func GenerateToFile(file *os.File, logCount int) {
 	fmt.Println("Writing to file")
+
+	var wg sync.WaitGroup
 	ch := make(chan Log)
-	go generateLogsRoutine(logCount, ch)
-	batchLogs(file, ch)
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		defer close(ch)
+		generateLogsRoutine(logCount, ch)
+	}()
+	go func() {
+		defer wg.Done()
+		batchLogs(file, ch)
+	}()
+	wg.Wait()
 }
 
 func batchLogs(file *os.File, ch chan Log) {
@@ -71,7 +84,6 @@ func batchLogs(file *os.File, ch chan Log) {
 }
 
 func generateLogsRoutine(count int, ch chan Log) {
-	defer close(ch)
 	for i := 0; i < count / 2; i++ {
 		generatedDelay := rand.Int63n(maximumOffsetMs)
 		generatedOffset := rand.Int63n(maximumOffsetMs)
