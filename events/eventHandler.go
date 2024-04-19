@@ -3,9 +3,9 @@ package events
 type EventType int
 
 const (
-	EventParse EventType = iota
-	EventGenerate
-	EventQuit
+	EventProgressStart EventType = iota
+	EventProgressDraw
+	EventProgressComplete
 )
 
 func (e *Event) EventType() EventType {
@@ -30,19 +30,31 @@ type Event struct {
 }
 
 type EventHandler struct {
-	subscribers map[EventType][]chan interface{}
+	subscribers map[EventType][]chan Event
 }
 
 func NewEventHandler() *EventHandler {
 	return &EventHandler{
-		subscribers: make(map[EventType][]chan interface{}),
+		subscribers: make(map[EventType][]chan Event),
 	}
 }
 
-func (eh *EventHandler) Subscribe(t EventType) chan interface{} {
-	ch := make(chan interface{})
+func (eh *EventHandler) Subscribe(t EventType) chan Event {
+	ch := make(chan Event)
 	eh.subscribers[t] = append(eh.subscribers[t], ch)
 	return ch
+}
+
+func (eh *EventHandler) Unsubscribe(t EventType, ch chan Event) {
+	if subscribers, ok := eh.subscribers[t]; ok {
+		for i, subscriber := range subscribers {
+			if subscriber == ch {
+				eh.subscribers[t] = append(subscribers[:i], subscribers[i+1:]...)
+				close(ch)
+				break
+			}
+		}
+	}
 }
 
 func (eh *EventHandler) Publish(t EventType, d interface{}) {
