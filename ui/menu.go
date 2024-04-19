@@ -79,7 +79,5 @@ func handleInputGenerate() error {
 	}
 
 	generator.GenerateToFile(file, logCount)
-	
-	fmt.Println("Generation success")
 	return nil
 }

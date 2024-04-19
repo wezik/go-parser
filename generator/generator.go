@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"com/parser/appContext"
+	"com/parser/events"
 	"fmt"
 	"math/rand"
 	"os"
@@ -27,27 +29,31 @@ func (l *Log) String() string {
 }
 
 func GenerateToFile(file *os.File, logCount int) {
-	fmt.Println("Writing to file")
-
-	var wg sync.WaitGroup
+	eh := appContext.EventHandler()
 	ch := make(chan Log)
+	var wg sync.WaitGroup
+
+	eh.Publish(events.EventProgressStart, "Generating logs to file")
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		defer close(ch)
-		generateLogsRoutine(logCount, ch)
+		generateLogs(logCount, ch)
 	}()
 	go func() {
 		defer wg.Done()
-		batchLogs(file, ch)
+		batchLogs(file, logCount, ch, eh)
 	}()
 	wg.Wait()
+
+	eh.Publish(events.EventProgressComplete, "Finished generating logs to file")
 }
 
-func batchLogs(file *os.File, ch chan Log) {
+func batchLogs(file *os.File, count int, ch chan Log, eh *events.EventHandler) {
 	var builder strings.Builder
 	var logsBatch []string
+	logsWritten := 0
 
 	for log := range ch {
 		logsBatch = append(logsBatch, log.String())
@@ -56,7 +62,6 @@ func batchLogs(file *os.File, ch chan Log) {
 				logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
 			})
 			logsStringifed := strings.Join(logsBatch, ",")
-			logsBatch = logsBatch[:0]
 			builder.WriteString(logsStringifed)
 			_, err := file.WriteString(builder.String())
 			if err != nil {
@@ -65,6 +70,11 @@ func batchLogs(file *os.File, ch chan Log) {
 			}
 			builder.Reset()
 			builder.WriteString(",")
+
+			logsWritten += len(logsBatch)
+			logsBatch = logsBatch[:0]
+
+			eh.Publish(events.EventProgressDraw, formatProgressMessage(logsWritten, count))
 		}
 	}
 	if len(logsBatch) <= 0 {
@@ -74,16 +84,24 @@ func batchLogs(file *os.File, ch chan Log) {
 		logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
 	})
 	logsStringifed := strings.Join(logsBatch, ",")
-	logsBatch = logsBatch[:0]
 	builder.WriteString(logsStringifed)
 	_, err := file.WriteString(builder.String())
 	if err != nil {
 		fmt.Println("Error writing to file")
 		return
 	}
+	logsWritten += len(logsBatch)
+	logsBatch = logsBatch[:0]
+
+	eh.Publish(events.EventProgressDraw, formatProgressMessage(logsWritten, count))
 }
 
-func generateLogsRoutine(count int, ch chan Log) {
+func formatProgressMessage(logsWritten, count int) string {
+	percentage := float32(logsWritten) / float32(count) * 100
+	return fmt.Sprintf("\rLogs written: %d/%d %.2f%%", logsWritten, count, percentage)
+}
+
+func generateLogs(count int, ch chan Log) {
 	for i := 0; i < count / 2; i++ {
 		generatedDelay := rand.Int63n(maximumOffsetMs)
 		generatedOffset := rand.Int63n(maximumOffsetMs)
