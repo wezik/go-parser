@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -17,26 +16,10 @@ type Log struct {
 
 var mutex = &sync.Mutex{}
 
-func Run() {
-	args := os.Args
-	if len(args) < 2 {
-		fmt.Println("Please provide a file path")
-		return
-	}
-
-	if len(args) < 3 {
-		fmt.Println("Please provide a log count you want to generate")
-		return
-	}
-
-	file, err := createFile(args[1])
+func Run(logCount int, fileName string) {
+	file, err := createFile(fileName)
 	if err != nil {
 		fmt.Println("Error creating file")
-		return
-	}
-	logCount, err := strconv.Atoi(args[2])
-	if err != nil {
-		fmt.Println("Error parsing log count, incorrect format")
 		return
 	}
 	writeToFile(logCount, file)
