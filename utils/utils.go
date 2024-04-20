@@ -5,6 +5,10 @@ import (
 	"os"
 )
 
+func TerminalWidth() int {
+	return 200 // Todo implement
+}
+
 func CreateFile(fileName string) (*os.File, error) {
 	var _, err = os.Stat(fileName)
 	var file *os.File
@@ -12,15 +16,10 @@ func CreateFile(fileName string) (*os.File, error) {
 	if os.IsNotExist(err) {
 		file, err = os.Create(fileName)
 		if err != nil {
-			fmt.Println("Error creating file")
 			return file, err
 		}
-
 	} else {
-		fmt.Println("File already exists")
-		return file, err
+		return file, fmt.Errorf("File with that name already exists")
 	}
-
-	fmt.Println("File created successfully")
 	return file, nil
 }

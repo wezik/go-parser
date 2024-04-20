@@ -1,9 +1,11 @@
 package main
 
 import (
-	"com/parser/ui"
+	"com/parser/menu"
+	"os"
 )
 
 func main() {
-	ui.Start()
+	menu.Start()
+	os.Exit(0)
 }

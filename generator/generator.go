@@ -1,8 +1,8 @@
 package generator
 
 import (
-	"com/parser/appContext"
-	"com/parser/events"
+	// "com/parser/ui"
+	"com/parser/ui/components"
 	"fmt"
 	"math/rand"
 	"os"
@@ -28,35 +28,88 @@ func (l *Log) String() string {
 	return fmt.Sprintf("{id:%d, state:\"%s\", timestamp:%d}", l.id, l.state, l.timestamp)
 }
 
-func GenerateToFile(file *os.File, logCount int) {
-	eh := appContext.EventHandler()
-	ch := make(chan Log)
-	var wg sync.WaitGroup
-
-	eh.Publish(events.EventProgressStart, "Generating logs to file")
-
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		defer close(ch)
-		generateLogs(logCount, ch)
-	}()
-	go func() {
-		defer wg.Done()
-		batchLogs(file, logCount, ch, eh)
-	}()
-	wg.Wait()
-
-	eh.Publish(events.EventProgressComplete, "Finished generating logs to file")
+type ProgressCustomComponent struct {
+	createdBar components.ProgressBar
+	writtenBar components.ProgressBar
+	label components.SimpleText
 }
 
-func batchLogs(file *os.File, count int, ch chan Log, eh *events.EventHandler) {
+func (pw ProgressCustomComponent) String() string {
+	return pw.label.String() + "\n" + pw.createdBar.String() + "\n" + pw.writtenBar.String() + "\n"
+}
+
+type ProgressWrapper struct {
+	created int
+	written int
+}
+
+func GenerateToFile(file *os.File, count int) {
+	logCh := make(chan Log)
+	// progressCh := make(chan ProgressWrapper)
+	var wg sync.WaitGroup
+
+	timestamp := time.Now().UnixMilli()
+	wg.Add(2)
+	// wg.Add(3)
+	// go func() {
+	// 	defer wg.Done()
+	// 	watchProgress(progressCh, count)
+	// }()
+	go func() {
+		defer wg.Done()
+		// defer close(progressCh)
+		batchLogs(file, logCh/* , progressCh */)
+	}()
+	generateLogs(count, logCh)
+	wg.Wait()
+
+	elapsed := time.Now().UnixMilli() - timestamp
+
+	fmt.Printf("\nGenerated %d logs in %d s %d ms", count, elapsed / 1000, elapsed % 1000)
+}
+
+// func watchProgress(ch chan ProgressWrapper, total int) {
+// 	progressComponent := ProgressCustomComponent {
+// 		createdBar: *components.ProgressBarDefault(),
+// 		writtenBar: *components.ProgressBarDefault(),
+// 		label: components.SimpleText{},
+// 	}
+//
+// 	progressComponent.label.SetText("Writing logs to file...")
+// 	progressComponent.createdBar.SetPrefix("Created logs:  ")
+// 	progressComponent.createdBar.SetSuffix(fmt.Sprintf("0/%d", total))
+// 	progressComponent.writtenBar.SetPrefix("Writen to file:")
+// 	progressComponent.writtenBar.SetSuffix(fmt.Sprintf("0/%d", total))
+//
+// 	ui.Render(progressComponent)
+//
+// 	for u := range ch {
+// 		if u.created > 0 {
+// 			progressComponent.createdBar.SetSuffix(fmt.Sprintf("%d/%d", u.created, total))
+// 			progressComponent.createdBar.SetPercentage(float32(u.created) / float32(total) * 100)
+// 			ui.ReRender(progressComponent)
+// 		}
+// 		if u.written > 0 {
+// 			progressComponent.writtenBar.SetSuffix(fmt.Sprintf("%d/%d", u.written, total))
+// 			progressComponent.writtenBar.SetPercentage(float32(u.written) / float32(total) * 100)
+// 			ui.ReRender(progressComponent)
+// 		}
+// 	}
+//
+// 	ui.ReRender(progressComponent)
+// }
+
+func batchLogs(file *os.File, ch chan Log/* , progressCh chan ProgressWrapper */) {
 	var builder strings.Builder
 	var logsBatch []string
-	logsWritten := 0
+	// logsWritten := 0
+	// logsCollected := 0
+	// lastUiUpdate := time.Now()
+	// lastWrittenUiUpdate := time.Now()
 
 	for log := range ch {
 		logsBatch = append(logsBatch, log.String())
+		// logsCollected ++
 		if len(logsBatch) >= shuffleSize {
 			rand.Shuffle(len(logsBatch), func(i, j int) {
 				logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
@@ -71,11 +124,16 @@ func batchLogs(file *os.File, count int, ch chan Log, eh *events.EventHandler) {
 			builder.Reset()
 			builder.WriteString(",")
 
-			logsWritten += len(logsBatch)
+			// logsWritten += len(logsBatch)
 			logsBatch = logsBatch[:0]
-
-			eh.Publish(events.EventProgressDraw, formatProgressMessage(logsWritten, count))
+			// if time.Since(lastWrittenUiUpdate) > time.Millisecond * 200 {
+			// 	progressCh <- ProgressWrapper{written: logsWritten, created: logsCollected}
+			// }
 		}
+		// if time.Since(lastUiUpdate) > time.Millisecond * 200 {
+		// 	lastUiUpdate = time.Now()
+		// 	progressCh <- ProgressWrapper{created: logsCollected}
+		// }
 	}
 	if len(logsBatch) <= 0 {
 		return
@@ -90,18 +148,13 @@ func batchLogs(file *os.File, count int, ch chan Log, eh *events.EventHandler) {
 		fmt.Println("Error writing to file")
 		return
 	}
-	logsWritten += len(logsBatch)
+	// logsWritten += len(logsBatch)
+	// progressCh <- ProgressWrapper{written: logsWritten, created: logsCollected}
 	logsBatch = logsBatch[:0]
-
-	eh.Publish(events.EventProgressDraw, formatProgressMessage(logsWritten, count))
-}
-
-func formatProgressMessage(logsWritten, count int) string {
-	percentage := float32(logsWritten) / float32(count) * 100
-	return fmt.Sprintf("\rLogs written: %d/%d %.2f%%", logsWritten, count, percentage)
 }
 
 func generateLogs(count int, ch chan Log) {
+	defer close(ch)
 	for i := 0; i < count / 2; i++ {
 		generatedDelay := rand.Int63n(maximumOffsetMs)
 		generatedOffset := rand.Int63n(maximumOffsetMs)
