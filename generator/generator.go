@@ -54,8 +54,12 @@ func GenerateToFile(file *os.File, count int) {
 	}()
 
 	go func() {
-		batchLogs(file, writeCh, progressCh)
+		err := batchLogs(file, writeCh, progressCh)
 		close(progressCh)
+		if err != nil {
+			fmt.Println(err)
+			close(writeCh)
+		}
 	}()
 	
 	watchProgress(progressCh, count * 2)
@@ -131,12 +135,12 @@ func watchProgress(ch chan ProgressWrapper, total int) {
 	ui.ReRender(progressComponent)
 }
 
-func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) {
+func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) error {
 	var builder strings.Builder
 
 	var logsBatch []string
 
-	writeShuffleAndReset := func() {
+	writeShuffleAndReset := func() error {
 		rand.Shuffle(len(logsBatch), func(i, j int) {
 			logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
 		})
@@ -145,16 +149,20 @@ func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) {
 		_, err := file.WriteString(builder.String())
 		if err != nil {
 			fmt.Println("Error writing to file")
-			return
+			return err
 		}
 		builder.Reset()
 		builder.WriteString(",")
+		return nil
 	}
 
 	for log := range ch {
 		logsBatch = append(logsBatch, log.String())
 		if len(logsBatch) >= batchSize {
-			writeShuffleAndReset()
+			err := writeShuffleAndReset()
+			if err != nil {
+				return err
+			}
 			progressCh <- ProgressWrapper{written: len(logsBatch)}
 			logsBatch = logsBatch[:0]
 		}
@@ -162,9 +170,13 @@ func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) {
 	}
 
 	if len(logsBatch) > 0 {
-		writeShuffleAndReset()
+		err := writeShuffleAndReset()
+		if err != nil {
+			return err
+		}
 		progressCh <- ProgressWrapper{written: len(logsBatch)}
 	}
+	return nil
 }
 
 func generateLogs(count int, ch chan Log) {
