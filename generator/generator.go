@@ -1,13 +1,12 @@
 package generator
 
 import (
-	// "com/parser/ui"
+	"com/parser/ui"
 	"com/parser/ui/components"
 	"fmt"
 	"math/rand"
 	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -15,7 +14,7 @@ const (
 	labelStart = "STARTED"
 	labelFinish = "FINISHED"
 	maximumOffsetMs int64 = 10000
-	shuffleSize = 252144
+	batchSize = 252144
 )
 
 type Log struct {
@@ -44,131 +43,145 @@ type ProgressWrapper struct {
 }
 
 func GenerateToFile(file *os.File, count int) {
-	logCh := make(chan Log)
-	// progressCh := make(chan ProgressWrapper)
-	var wg sync.WaitGroup
+	writeCh := make(chan Log)
+	progressCh := make(chan ProgressWrapper)
 
 	timestamp := time.Now().UnixMilli()
-	wg.Add(2)
-	// wg.Add(3)
-	// go func() {
-	// 	defer wg.Done()
-	// 	watchProgress(progressCh, count)
-	// }()
+
 	go func() {
-		defer wg.Done()
-		// defer close(progressCh)
-		batchLogs(file, logCh/* , progressCh */)
+		generateLogs(count, writeCh)
+		close(writeCh)
 	}()
-	generateLogs(count, logCh)
-	wg.Wait()
 
-	elapsed := time.Now().UnixMilli() - timestamp
+	go func() {
+		batchLogs(file, writeCh, progressCh)
+		close(progressCh)
+	}()
+	
+	watchProgress(progressCh, count * 2)
 
-	fmt.Printf("\nGenerated %d logs in %d s %d ms", count, elapsed / 1000, elapsed % 1000)
+	timeElapsed := time.Since(time.UnixMilli(timestamp)).Milliseconds()
+	timeElapsedComponent := components.SimpleText{}
+	timeElapsedComponent.SetText(formatElapsedString(timeElapsed))
+	ui.Render(timeElapsedComponent)
 }
 
-// func watchProgress(ch chan ProgressWrapper, total int) {
-// 	progressComponent := ProgressCustomComponent {
-// 		createdBar: *components.ProgressBarDefault(),
-// 		writtenBar: *components.ProgressBarDefault(),
-// 		label: components.SimpleText{},
-// 	}
-//
-// 	progressComponent.label.SetText("Writing logs to file...")
-// 	progressComponent.createdBar.SetPrefix("Created logs:  ")
-// 	progressComponent.createdBar.SetSuffix(fmt.Sprintf("0/%d", total))
-// 	progressComponent.writtenBar.SetPrefix("Writen to file:")
-// 	progressComponent.writtenBar.SetSuffix(fmt.Sprintf("0/%d", total))
-//
-// 	ui.Render(progressComponent)
-//
-// 	for u := range ch {
-// 		if u.created > 0 {
-// 			progressComponent.createdBar.SetSuffix(fmt.Sprintf("%d/%d", u.created, total))
-// 			progressComponent.createdBar.SetPercentage(float32(u.created) / float32(total) * 100)
-// 			ui.ReRender(progressComponent)
-// 		}
-// 		if u.written > 0 {
-// 			progressComponent.writtenBar.SetSuffix(fmt.Sprintf("%d/%d", u.written, total))
-// 			progressComponent.writtenBar.SetPercentage(float32(u.written) / float32(total) * 100)
-// 			ui.ReRender(progressComponent)
-// 		}
-// 	}
-//
-// 	ui.ReRender(progressComponent)
-// }
+func formatElapsedString(elapsed int64) string {
+	var b strings.Builder
+	ms := elapsed % 1000
+	s := (elapsed / 1000) % 60
+	m := (elapsed / 1000) / 60
+	b.WriteString("Completed in [")
+	if m > 0 {
+		b.WriteString(fmt.Sprintf("%dm ", m))
+	}
+	if s > 0 {
+		b.WriteString(fmt.Sprintf("%ds ", s))
+	}
+	b.WriteString(fmt.Sprintf("%dms]\n", ms))
+	return b.String()
+}
 
-func batchLogs(file *os.File, ch chan Log/* , progressCh chan ProgressWrapper */) {
+
+func watchProgress(ch chan ProgressWrapper, total int) {
+	progressComponent := ProgressCustomComponent {
+		createdBar: *components.ProgressBarDefault(),
+		writtenBar: *components.ProgressBarDefault(),
+		label: components.SimpleText{},
+	}
+
+	progressComponent.label.SetText("Writing timestamps to file...\n2 timestamps for each log")
+	progressComponent.createdBar.SetPrefix("Created:")
+	progressComponent.createdBar.SetMax(total)
+	progressComponent.writtenBar.SetPrefix("Written:")
+	progressComponent.writtenBar.SetMax(total)
+
+	ui.Render(progressComponent)
+	
+	tickerCh := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <- ticker.C:
+				ui.ReRender(progressComponent)
+			case <- tickerCh:
+				return
+			}
+
+		}
+	}()
+
+	createdCount := 0
+	writtenCount := 0
+
+	for u := range ch {
+		if u.created > 0 {
+			createdCount += u.created
+			progressComponent.createdBar.SetValue(createdCount)
+		}
+		if u.written > 0 {
+			writtenCount += u.written
+			progressComponent.writtenBar.SetValue(writtenCount)
+		}
+	}
+	close(tickerCh)
+	ui.ReRender(progressComponent)
+}
+
+func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) {
 	var builder strings.Builder
+
 	var logsBatch []string
-	// logsWritten := 0
-	// logsCollected := 0
-	// lastUiUpdate := time.Now()
-	// lastWrittenUiUpdate := time.Now()
+
+	writeShuffleAndReset := func() {
+		// rand.Shuffle(len(logsBatch), func(i, j int) {
+		// 	logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
+		// })
+		data := strings.Join(logsBatch, ",")
+		builder.WriteString(data)
+		_, err := file.WriteString(builder.String())
+		if err != nil {
+			fmt.Println("Error writing to file")
+			return
+		}
+		builder.Reset()
+		builder.WriteString(",")
+	}
 
 	for log := range ch {
 		logsBatch = append(logsBatch, log.String())
-		// logsCollected ++
-		if len(logsBatch) >= shuffleSize {
-			rand.Shuffle(len(logsBatch), func(i, j int) {
-				logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
-			})
-			logsStringifed := strings.Join(logsBatch, ",")
-			builder.WriteString(logsStringifed)
-			_, err := file.WriteString(builder.String())
-			if err != nil {
-				fmt.Println("Error writing to file")
-				return
-			}
-			builder.Reset()
-			builder.WriteString(",")
-
-			// logsWritten += len(logsBatch)
+		if len(logsBatch) >= batchSize {
+			writeShuffleAndReset()
+			progressCh <- ProgressWrapper{written: len(logsBatch)}
 			logsBatch = logsBatch[:0]
-			// if time.Since(lastWrittenUiUpdate) > time.Millisecond * 200 {
-			// 	progressCh <- ProgressWrapper{written: logsWritten, created: logsCollected}
-			// }
 		}
-		// if time.Since(lastUiUpdate) > time.Millisecond * 200 {
-		// 	lastUiUpdate = time.Now()
-		// 	progressCh <- ProgressWrapper{created: logsCollected}
-		// }
+		progressCh <- ProgressWrapper{created: 1}
 	}
-	if len(logsBatch) <= 0 {
-		return
+
+	if len(logsBatch) > 0 {
+		writeShuffleAndReset()
+		progressCh <- ProgressWrapper{written: len(logsBatch)}
 	}
-	rand.Shuffle(len(logsBatch), func(i, j int) {
-		logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
-	})
-	logsStringifed := strings.Join(logsBatch, ",")
-	builder.WriteString(logsStringifed)
-	_, err := file.WriteString(builder.String())
-	if err != nil {
-		fmt.Println("Error writing to file")
-		return
-	}
-	// logsWritten += len(logsBatch)
-	// progressCh <- ProgressWrapper{written: logsWritten, created: logsCollected}
-	logsBatch = logsBatch[:0]
 }
 
 func generateLogs(count int, ch chan Log) {
-	defer close(ch)
-	for i := 0; i < count / 2; i++ {
-		generatedDelay := rand.Int63n(maximumOffsetMs)
-		generatedOffset := rand.Int63n(maximumOffsetMs)
+	for i := 0; i < count; i++ {
+		randomizedDelay := rand.Int63n(maximumOffsetMs)
+		randomizedOffset := rand.Int63n(maximumOffsetMs) - maximumOffsetMs / 2
 		startLog := Log {
 			id: i,
 			state: labelStart,
-			timestamp: time.Now().Unix() + generatedOffset,
+			timestamp: time.Now().Unix() + randomizedOffset,
 		}
-		ch <- startLog
 		endLog := Log {
 			id: startLog.id,
 			state: labelFinish,
-			timestamp: startLog.timestamp + generatedDelay,
+			timestamp: startLog.timestamp + randomizedDelay,
 		}
+		ch <- startLog
 		ch <- endLog
 	}
 }
