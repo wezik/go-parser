@@ -137,9 +137,9 @@ func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) {
 	var logsBatch []string
 
 	writeShuffleAndReset := func() {
-		// rand.Shuffle(len(logsBatch), func(i, j int) {
-		// 	logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
-		// })
+		rand.Shuffle(len(logsBatch), func(i, j int) {
+			logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
+		})
 		data := strings.Join(logsBatch, ",")
 		builder.WriteString(data)
 		_, err := file.WriteString(builder.String())
