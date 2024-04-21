@@ -40,6 +40,7 @@ func (pw ProgressCustomComponent) String() string {
 type ProgressWrapper struct {
 	created int
 	written int
+	bytes uint64
 }
 
 func GenerateToFile(file *os.File, count int) {
@@ -120,6 +121,7 @@ func watchProgress(ch chan ProgressWrapper, total int) {
 
 	createdCount := 0
 	writtenCount := 0
+	totalBytes := uint64(0)
 
 	for u := range ch {
 		if u.created > 0 {
@@ -130,9 +132,25 @@ func watchProgress(ch chan ProgressWrapper, total int) {
 			writtenCount += u.written
 			progressComponent.writtenBar.SetValue(writtenCount)
 		}
+		if u.bytes > 0 {
+			totalBytes += u.bytes
+			progressComponent.writtenBar.SetSuffix("[%d/%d] [" + formatBytesToString(totalBytes) + "]")
+		}
 	}
 	close(tickerCh)
 	ui.ReRender(progressComponent)
+}
+
+func formatBytesToString(bytes uint64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	} else if bytes < 1024 * 1024 {
+		return fmt.Sprintf("%.2f KB", float64(bytes) / 1024)
+	} else if bytes < 1024 * 1024 * 1024 {
+		return fmt.Sprintf("%.2f MB", float64(bytes) / 1024 / 1024)
+	} else {
+		return fmt.Sprintf("%.2f GB", float64(bytes) / 1024 / 1024 / 1024)
+	}
 }
 
 func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) error {
@@ -140,41 +158,41 @@ func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) erro
 
 	var logsBatch []string
 
-	writeShuffleAndReset := func() error {
+	writeShuffleAndReset := func() (int, error) {
 		rand.Shuffle(len(logsBatch), func(i, j int) {
 			logsBatch[i], logsBatch[j] = logsBatch[j], logsBatch[i]
 		})
 		data := strings.Join(logsBatch, ",")
 		builder.WriteString(data)
-		_, err := file.WriteString(builder.String())
+		bytes, err := file.WriteString(builder.String())
 		if err != nil {
 			fmt.Println("Error writing to file")
-			return err
+			return bytes, err
 		}
 		builder.Reset()
 		builder.WriteString(",")
-		return nil
+		return bytes, nil
 	}
 
 	for log := range ch {
 		logsBatch = append(logsBatch, log.String())
 		if len(logsBatch) >= batchSize {
-			err := writeShuffleAndReset()
+			bytes, err := writeShuffleAndReset()
 			if err != nil {
 				return err
 			}
-			progressCh <- ProgressWrapper{written: len(logsBatch)}
+			progressCh <- ProgressWrapper{written: len(logsBatch), bytes: uint64(bytes)}
 			logsBatch = logsBatch[:0]
 		}
 		progressCh <- ProgressWrapper{created: 1}
 	}
 
 	if len(logsBatch) > 0 {
-		err := writeShuffleAndReset()
+		bytes, err := writeShuffleAndReset()
 		if err != nil {
 			return err
 		}
-		progressCh <- ProgressWrapper{written: len(logsBatch)}
+		progressCh <- ProgressWrapper{written: len(logsBatch), bytes: uint64(bytes)}
 	}
 	return nil
 }
