@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -22,4 +23,12 @@ func CreateFile(fileName string) (*os.File, error) {
 		return file, fmt.Errorf("File with that name already exists")
 	}
 	return file, nil
+}
+
+func OpenReaderForFile(fileName string) (io.Reader, error) {
+	var reader, err = os.Open(fileName)
+	if err != nil {
+		return reader, err
+	}
+	return reader, nil
 }

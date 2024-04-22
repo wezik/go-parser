@@ -14,12 +14,11 @@ import (
 )
 
 const (
-	menuPrint = 
-	"---Log parser---|\n" +
-	"1. Parse File   |\n" +
-	"2. Generate Test|\n" +
-	"Q. Quit         |\n" +
-	"-----------------\n"
+	menuPrint = "---Log parser---|\n" +
+		"1. Parse File   |\n" +
+		"2. Generate Test|\n" +
+		"Q. Quit         |\n" +
+		"-----------------\n"
 
 	askInput    = "Input: "
 	askLogCount = "Amount of logs to write: "
@@ -42,7 +41,12 @@ func Start() {
 		ui.Render(menuText)
 		switch strings.ToUpper(readUserInput(askInput)) {
 		case "1":
-			parser.Parse()
+			fileName := readUserInput(askFileName)
+			reader, err := utils.OpenReaderForFile(fileName)
+			if err != nil {
+				continue
+			}
+			parser.ReadAndFlag(reader)
 		case "2":
 			count, file, err := readGenerateInputs()
 			if err != nil {
@@ -73,7 +77,6 @@ func readGenerateInputs() (int, string, error) {
 	fileName := readUserInput(askFileName)
 	return count, fileName, nil
 }
-
 
 func setupGenerate(count int, fileName string) {
 	file, err := utils.CreateFile(fileName)
