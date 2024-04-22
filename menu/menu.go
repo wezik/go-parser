@@ -42,11 +42,7 @@ func Start() {
 		switch strings.ToUpper(readUserInput(askInput)) {
 		case "1":
 			fileName := readUserInput(askFileName)
-			reader, err := utils.OpenReaderForFile(fileName)
-			if err != nil {
-				continue
-			}
-			parser.ReadAndFlag(reader)
+			setupParse(fileName)
 		case "2":
 			count, file, err := readGenerateInputs()
 			if err != nil {
@@ -87,4 +83,13 @@ func setupGenerate(count int, fileName string) {
 	defer file.Close()
 
 	generator.GenerateToFile(file, count)
+}
+
+func setupParse(fileName string) {
+	file, err := utils.OpenFile(fileName)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer file.Close()
+	parser.ReadAndFlag(file)
 }

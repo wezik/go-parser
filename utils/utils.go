@@ -2,7 +2,6 @@ package utils
 
 import (
 	"fmt"
-	"io"
 	"os"
 )
 
@@ -25,10 +24,10 @@ func CreateFile(fileName string) (*os.File, error) {
 	return file, nil
 }
 
-func OpenReaderForFile(fileName string) (io.Reader, error) {
-	var reader, err = os.Open(fileName)
+func OpenFile(fileName string) (*os.File, error) {
+	file, err := os.Open(fileName)
 	if err != nil {
-		return reader, err
+		return file, err
 	}
-	return reader, nil
+	return file, nil
 }
