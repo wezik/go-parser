@@ -3,6 +3,7 @@ package generator
 import (
 	"com/parser/ui"
 	"com/parser/ui/components"
+	"com/parser/utils"
 	"fmt"
 	"math/rand"
 	"os"
@@ -134,23 +135,11 @@ func watchProgress(ch chan ProgressWrapper, total int) {
 		}
 		if u.bytes > 0 {
 			totalBytes += u.bytes
-			progressComponent.writtenBar.SetSuffix("[%d/%d] [" + formatBytesToString(totalBytes) + "]")
+			progressComponent.writtenBar.SetSuffix("[%d/%d] [" + utils.FormatBytesToString(totalBytes) + "]")
 		}
 	}
 	close(tickerCh)
 	ui.ReRender(progressComponent)
-}
-
-func formatBytesToString(bytes uint64) string {
-	if bytes < 1024 {
-		return fmt.Sprintf("%d B", bytes)
-	} else if bytes < 1024 * 1024 {
-		return fmt.Sprintf("%.2f KB", float64(bytes) / 1024)
-	} else if bytes < 1024 * 1024 * 1024 {
-		return fmt.Sprintf("%.2f MB", float64(bytes) / 1024 / 1024)
-	} else {
-		return fmt.Sprintf("%.2f GB", float64(bytes) / 1024 / 1024 / 1024)
-	}
 }
 
 func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) error {
