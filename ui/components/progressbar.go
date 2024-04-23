@@ -7,14 +7,14 @@ import (
 )
 
 type ProgressBar struct {
-	value int
-	max int
+	value int64
+	max int64
 	prefix string
 	suffix string
 	width int
 }
 
-func (pb *ProgressBar) Max() int {
+func (pb *ProgressBar) Max() int64 {
 	return pb.max
 }
 
@@ -26,7 +26,7 @@ func (pb *ProgressBar) Suffix() string {
 	return pb.suffix
 }
 
-func (pb *ProgressBar) Value() int {
+func (pb *ProgressBar) Value() int64 {
 	return pb.value
 }
 
@@ -34,7 +34,7 @@ func (pb *ProgressBar) Width() int {
 	return pb.width
 }
 
-func (pb *ProgressBar) SetMax(max int) {
+func (pb *ProgressBar) SetMax(max int64) {
 	pb.max = max
 }
 
@@ -46,7 +46,7 @@ func (pb *ProgressBar) SetSuffix(suffix string) {
 	pb.suffix = suffix
 }
 
-func (pb *ProgressBar) SetValue(value int) {
+func (pb *ProgressBar) SetValue(value int64) {
 	pb.value = value
 }
 
@@ -97,8 +97,8 @@ func (pb ProgressBar) String() string {
 	return b.String()
 }
 
-func ProgressBarDefault() *ProgressBar {
-	return &ProgressBar {
+func ProgressBarDefault() ProgressBar {
+	return ProgressBar {
 		value: 0,
 		max: 100,
 		prefix: "Progress:",

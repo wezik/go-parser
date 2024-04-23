@@ -91,16 +91,16 @@ func formatElapsedString(elapsed int64) string {
 
 func watchProgress(ch chan ProgressWrapper, total int) {
 	progressComponent := ProgressCustomComponent {
-		createdBar: *components.ProgressBarDefault(),
-		writtenBar: *components.ProgressBarDefault(),
+		createdBar: components.ProgressBarDefault(),
+		writtenBar: components.ProgressBarDefault(),
 		label: components.SimpleText{},
 	}
 
 	progressComponent.label.SetText("Writing timestamps to file...\n2 timestamps for each log")
 	progressComponent.createdBar.SetPrefix("Created:")
-	progressComponent.createdBar.SetMax(total)
+	progressComponent.createdBar.SetMax(int64(total))
 	progressComponent.writtenBar.SetPrefix("Written:")
-	progressComponent.writtenBar.SetMax(total)
+	progressComponent.writtenBar.SetMax(int64(total))
 
 	ui.Render(progressComponent)
 	
@@ -127,11 +127,11 @@ func watchProgress(ch chan ProgressWrapper, total int) {
 	for u := range ch {
 		if u.created > 0 {
 			createdCount += u.created
-			progressComponent.createdBar.SetValue(createdCount)
+			progressComponent.createdBar.SetValue(int64(createdCount))
 		}
 		if u.written > 0 {
 			writtenCount += u.written
-			progressComponent.writtenBar.SetValue(writtenCount)
+			progressComponent.writtenBar.SetValue(int64(createdCount))
 		}
 		if u.bytes > 0 {
 			totalBytes += u.bytes
