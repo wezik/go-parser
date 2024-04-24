@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"com/parser/parser"
 	"com/parser/ui"
 	"com/parser/ui/components"
 	"com/parser/utils"
@@ -14,18 +15,18 @@ import (
 const (
 	labelStart = "STARTED"
 	labelFinish = "FINISHED"
-	maximumOffsetMs int64 = 10000
+	maximumTimestampOffset int64 = 10000
 	batchSize = 252144
 )
 
-type Log struct {
-	id int
-	state string
-	timestamp int64
-}
-
-func (l *Log) String() string {
-	return fmt.Sprintf("{id:%d, state:\"%s\", timestamp:%d}", l.id, l.state, l.timestamp)
+func LogToTimestampStrings(log parser.Log) (string, string) {
+	start := fmt.Sprintf(
+		"{\"id\": %d, \"state\": \"%s\", \"timestamp\": %d}",
+		log.Id, parser.StartFlag, log.TimestampStart.Epoch)
+	end := fmt.Sprintf(
+		"{\"id\": %d, \"state\": \"%s\", \"timestamp\": %d}",
+		log.Id, parser.FinishFlag, log.TimestampFinish.Epoch)
+	return start, end
 }
 
 type ProgressCustomComponent struct {
@@ -45,7 +46,7 @@ type ProgressWrapper struct {
 }
 
 func GenerateToFile(file *os.File, count int) {
-	writeCh := make(chan Log)
+	writeCh := make(chan parser.Log)
 	progressCh := make(chan ProgressWrapper)
 
 	timestamp := time.Now().UnixMilli()
@@ -64,7 +65,7 @@ func GenerateToFile(file *os.File, count int) {
 		}
 	}()
 	
-	watchProgress(progressCh, count * 2)
+	watchProgress(progressCh, count)
 
 	timeElapsed := time.Since(time.UnixMilli(timestamp)).Milliseconds()
 	timeElapsedComponent := components.SimpleText{}
@@ -142,7 +143,7 @@ func watchProgress(ch chan ProgressWrapper, total int) {
 	ui.ReRender(progressComponent)
 }
 
-func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) error {
+func batchLogs(file *os.File, ch chan parser.Log, progressCh chan ProgressWrapper) error {
 	var builder strings.Builder
 
 	var logsBatch []string
@@ -164,7 +165,8 @@ func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) erro
 	}
 
 	for log := range ch {
-		logsBatch = append(logsBatch, log.String())
+		start, end := LogToTimestampStrings(log)
+		logsBatch = append(logsBatch, start, end)
 		if len(logsBatch) >= batchSize {
 			bytes, err := writeShuffleAndReset()
 			if err != nil {
@@ -186,21 +188,15 @@ func batchLogs(file *os.File, ch chan Log, progressCh chan ProgressWrapper) erro
 	return nil
 }
 
-func generateLogs(count int, ch chan Log) {
+func generateLogs(count int, ch chan parser.Log) {
 	for i := 0; i < count; i++ {
-		randomizedDelay := rand.Int63n(maximumOffsetMs)
-		randomizedOffset := rand.Int63n(maximumOffsetMs) - maximumOffsetMs / 2
-		startLog := Log {
-			id: i,
-			state: labelStart,
-			timestamp: time.Now().Unix() + randomizedOffset,
+		randomizedDelay := rand.Int63n(maximumTimestampOffset)
+		randomizedOffset := rand.Int63n(maximumTimestampOffset) - maximumTimestampOffset / 2
+		timestamp := parser.LogTimestamp{Epoch: time.Now().Unix() + randomizedOffset}
+		ch <- parser.Log {
+			Id: i,
+			TimestampStart: timestamp,
+			TimestampFinish: parser.LogTimestamp{Epoch: timestamp.Epoch + randomizedDelay},
 		}
-		endLog := Log {
-			id: startLog.id,
-			state: labelFinish,
-			timestamp: startLog.timestamp + randomizedDelay,
-		}
-		ch <- startLog
-		ch <- endLog
 	}
 }
