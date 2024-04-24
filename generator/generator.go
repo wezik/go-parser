@@ -15,17 +15,17 @@ import (
 const (
 	labelStart = "STARTED"
 	labelFinish = "FINISHED"
-	maximumTimestampOffset int64 = 10000
+	maximumTimestampOffsetS int64 = 10
 	batchSize = 252144
 )
 
 func LogToTimestampStrings(log parser.Log) (string, string) {
 	start := fmt.Sprintf(
 		"{\"id\": %d, \"state\": \"%s\", \"timestamp\": %d}",
-		log.Id, parser.StartFlag, log.TimestampStart.Epoch)
+		log.Id, parser.StartFlag, log.TimestampStart)
 	end := fmt.Sprintf(
 		"{\"id\": %d, \"state\": \"%s\", \"timestamp\": %d}",
-		log.Id, parser.FinishFlag, log.TimestampFinish.Epoch)
+		log.Id, parser.FinishFlag, log.TimestampFinish)
 	return start, end
 }
 
@@ -190,13 +190,13 @@ func batchLogs(file *os.File, ch chan parser.Log, progressCh chan ProgressWrappe
 
 func generateLogs(count int, ch chan parser.Log) {
 	for i := 0; i < count; i++ {
-		randomizedDelay := rand.Int63n(maximumTimestampOffset)
-		randomizedOffset := rand.Int63n(maximumTimestampOffset) - maximumTimestampOffset / 2
-		timestamp := parser.LogTimestamp{Epoch: time.Now().Unix() + randomizedOffset}
+		randomizedDelay := rand.Int63n(maximumTimestampOffsetS)
+		randomizedOffset := rand.Int63n(maximumTimestampOffsetS) - maximumTimestampOffsetS / 2
+		timestamp := time.Now().Unix() + randomizedOffset
 		ch <- parser.Log {
 			Id: i,
 			TimestampStart: timestamp,
-			TimestampFinish: parser.LogTimestamp{Epoch: timestamp.Epoch + randomizedDelay},
+			TimestampFinish: timestamp + randomizedDelay,
 		}
 	}
 }

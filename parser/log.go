@@ -2,12 +2,8 @@ package parser
 
 type Log struct {
 	Id int
-	TimestampStart LogTimestamp
-	TimestampFinish LogTimestamp
-}
-
-type LogTimestamp struct {
-	Epoch int64
+	TimestampStart int64
+	TimestampFinish int64
 }
 
 const (
