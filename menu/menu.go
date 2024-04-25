@@ -2,6 +2,7 @@ package menu
 
 import (
 	"bufio"
+	"com/parser/database"
 	"com/parser/generator"
 	"com/parser/parser"
 	"com/parser/ui"
@@ -11,12 +12,15 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	menuPrint = "---Log parser---|\n" +
 		"1. Parse File   |\n" +
 		"2. Generate Test|\n" +
+		"3. DB test add  |\n" +
+		"4. Db test fetch|\n" +
 		"Q. Quit         |\n" +
 		"-----------------\n"
 
@@ -49,6 +53,23 @@ func Start() {
 				continue
 			}
 			setupGenerate(count, file)
+		case "3":
+			log := parser.Log{
+				Id:              99,
+				TimestampStart:  time.Now(),
+				TimestampFinish: time.Now(),
+			}
+			database.InsertLog(log)
+		case "4":
+			logs, err := database.FetchLogs()
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			fmt.Println("Logs:", len(logs))
+			for _, log := range logs {
+				fmt.Println(log)
+			}
 		case "Q", "QUIT":
 			return
 		}

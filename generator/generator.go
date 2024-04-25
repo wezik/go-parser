@@ -22,10 +22,10 @@ const (
 func LogToTimestampStrings(log parser.Log) (string, string) {
 	start := fmt.Sprintf(
 		"{\"id\": %d, \"state\": \"%s\", \"timestamp\": %d}",
-		log.Id, parser.StartFlag, log.TimestampStart)
+		log.Id, parser.StartFlag, log.TimestampStart.Unix())
 	end := fmt.Sprintf(
 		"{\"id\": %d, \"state\": \"%s\", \"timestamp\": %d}",
-		log.Id, parser.FinishFlag, log.TimestampFinish)
+		log.Id, parser.FinishFlag, log.TimestampFinish.Unix())
 	return start, end
 }
 
@@ -192,11 +192,11 @@ func generateLogs(count int, ch chan parser.Log) {
 	for i := 0; i < count; i++ {
 		randomizedDelay := rand.Int63n(maximumTimestampOffsetS)
 		randomizedOffset := rand.Int63n(maximumTimestampOffsetS) - maximumTimestampOffsetS / 2
-		timestamp := time.Now().Unix() + randomizedOffset
+		timestamp := time.Now().Add(time.Duration(randomizedOffset) * time.Second)
 		ch <- parser.Log {
 			Id: i,
 			TimestampStart: timestamp,
-			TimestampFinish: timestamp + randomizedDelay,
+			TimestampFinish: timestamp.Add(time.Duration(randomizedDelay) * time.Second),
 		}
 	}
 }

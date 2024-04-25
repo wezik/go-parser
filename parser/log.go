@@ -1,12 +1,14 @@
 package parser
 
+import "time"
+
 type Log struct {
-	Id int
-	TimestampStart int64
-	TimestampFinish int64
+	Id              int
+	TimestampStart  time.Time
+	TimestampFinish time.Time
 }
 
 const (
-	StartFlag = "STARTED"
+	StartFlag  = "STARTED"
 	FinishFlag = "FINISHED"
 )
