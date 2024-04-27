@@ -1,112 +1,75 @@
 package parser
 
 import (
-	"com/parser/ui"
-	"com/parser/ui/components"
+	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
-	"sync"
-	"time"
 )
 
-type ProgressWrapper struct {
-	bytes int64
-}
+func ReadAndFlag(reader io.Reader) error {
+	timestamps := make([]LogTimestamp, 0)
 
-type ProgressCustomComponent struct {
-	bytesBar components.ProgressBar
-	label components.SimpleText
-}
-
-func (pw ProgressCustomComponent) String() string {
-	return pw.label.String() + "\n" + pw.bytesBar.String() + "\n"
-}
-
-func ReadAndFlag(file *os.File) {
-	timestamp := time.Now().UnixMilli()
 	buffer := make([]byte, 1024)
-	logs := make([]string, 0)
-	builder := strings.Builder{}
-	fileStat, err := file.Stat()
-	if err != nil {
-		fmt.Println(err)
-	}
-	progressCh := make(chan ProgressWrapper)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		watchProgress(progressCh, fileStat.Size())
-	}()
+	mergedBuffer := make([]byte, 0)
+
+	var err error
+
 	for {
-		bytes, err := file.Read(buffer)
+		clear(buffer)
+		_, err = reader.Read(buffer)
 		if err == io.EOF {
+			err = nil
 			break
 		} else if err != nil {
-			fmt.Println(err)
+			break
 		}
 
-		startIndex := 0
-		endIndex := 0
-		for i, b := range buffer {
-			if b == '}' {
-				endIndex = i
-				builder.WriteString(string(buffer[startIndex:endIndex + 1]))
-				logs = append(logs, builder.String())
-				builder.Reset()
-			} else if b == '{' {
-				startIndex = i
-			}
-		}
-		// Handle logs split between buffers
-		if startIndex >= endIndex {
-			builder.WriteString(string(buffer[startIndex:]))
-		}
-		// Buffer can be filled with previous read, so we need to clear it
-		clear(buffer)
-		progressCh <- ProgressWrapper{bytes: int64(bytes)}
+		mergedBuffer = append(mergedBuffer, buffer...)
+
+		leftover := findTimestamps(mergedBuffer, &timestamps)
+
+		clear(mergedBuffer)
+		mergedBuffer = append(mergedBuffer, leftover...)
 	}
-	close(progressCh)
-	wg.Wait()
-	fmt.Println("Timestamps read:", len(logs))
-	fmt.Println("ReadAndFlag took", time.Now().UnixMilli()-timestamp, "ms")
+	return err
 }
 
-func watchProgress(progressCh chan ProgressWrapper, fileSize int64) {
-	component := ProgressCustomComponent{
-		bytesBar: components.ProgressBarDefault(),
-		label: components.SimpleText{},
-	}
-	component.label.SetText("Reading file...")	
-	component.bytesBar.SetMax(fileSize)
+func findTimestamps(bytes []byte, timestamps *[]LogTimestamp) []byte {
+	openingBraceIndex := -1
+	closeBraceIndex := -1
+	var leftover []byte
 
-	ui.Render(component)
-
-	tickerStopCh := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		ticker := time.NewTicker(200 * time.Millisecond)
-		defer ticker.Stop()
-		defer wg.Done()
-		for {
-			select {	
-			case <- ticker.C:
-				ui.ReRender(component)
-			case <- tickerStopCh:
-				return
+	for i, b := range bytes {
+		if b == '}' && openingBraceIndex != -1 {
+			closeBraceIndex = i
+			logTimestamp, err := unmarshalTimestamp(bytes[openingBraceIndex:i + 1])
+			if err != nil {
+				continue
 			}
+			*timestamps = append(*timestamps, logTimestamp)
+		} else if b == '{' {
+			openingBraceIndex = i
 		}
-	}()
-
-	totalBytes := int64(0)
-	for progress := range progressCh {
-		totalBytes += progress.bytes
-		component.bytesBar.SetValue(totalBytes)
 	}
-	close(tickerStopCh)
-	wg.Wait()
-	ui.ReRender(component)
+
+	if openingBraceIndex >= closeBraceIndex {
+		leftover = append(leftover, bytes[openingBraceIndex:]...)
+	}
+
+	return leftover
+}
+
+func unmarshalTimestamp(bytes []byte) (LogTimestamp, error) {
+	var logTimestamp LogTimestamp
+
+	err := json.Unmarshal(bytes, &logTimestamp)
+	if err != nil {
+		return LogTimestamp{}, err
+	} else if logTimestamp.Id == 0 || logTimestamp.Timestamp == 0 || logTimestamp.State == "" {
+		return LogTimestamp{}, fmt.Errorf("Invalid log timestamp")
+	}
+
+	logTimestamp.State = strings.ToUpper(logTimestamp.State)
+	return logTimestamp, err
 }

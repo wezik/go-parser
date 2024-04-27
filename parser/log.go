@@ -8,6 +8,12 @@ type Log struct {
 	TimestampFinish time.Time
 }
 
+type LogTimestamp struct {
+	Id        int
+	Timestamp int64 
+	State     string
+}
+
 const (
 	StartFlag  = "STARTED"
 	FinishFlag = "FINISHED"

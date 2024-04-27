@@ -112,5 +112,5 @@ func setupParse(fileName string) {
 		fmt.Println(err)
 	}
 	defer file.Close()
-	parser.ReadAndFlag(file)
+	// parser.ReadAndFlag(file)
 }
