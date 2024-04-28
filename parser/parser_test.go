@@ -1,148 +1,510 @@
 package parser
 
 import (
+	"bytes"
 	"fmt"
-	// "io"
-	"os"
+	"io"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
 
-// --- Mocks ---
-
-// type mockReader struct {
-// 	data []byte
-// 	readErr error
-// }
-//
-// func (m *mockReader) Read(p []byte) (n int, err error) {
-// 	if m.readErr != nil {
-// 		return 0, m.readErr
-// 	}
-//
-// 	finalLength := 70 // Capped at 70 bytes so we can test leftovers
-// 	if len(m.data) < finalLength {
-// 		finalLength = len(m.data)
-// 	}
-//
-// 	if finalLength == 0 {
-// 		return n, io.EOF
-// 	}
-//
-// 	n = copy(p, m.data[:finalLength])
-// 	fmt.Println("Read:", string(p))
-// 	m.data = m.data[n:]
-// 	return n, nil
-// }
-
-const (
-	mockData = `{"Id": 1, "STATE": "STARTED", "tiMesTamP": 1619541248} , {"iD": 3, "STatE": "FINISHED", "tiMesTamP": 1619541249}`
-)
-
-var mockDataBytes []byte
-var mockDataTimestamps []LogTimestamp
-
-func TestMain(m *testing.M) {
-	fmt.Println("Running setup before tests")
-
-	mockDataBytes = []byte(mockData)
-	mockDataTimestamps = make([]LogTimestamp, 0)
-	mockDataTimestamps = append(mockDataTimestamps, LogTimestamp{Id: 1, Timestamp: 1619541248, State: StartFlag})
-	mockDataTimestamps = append(mockDataTimestamps, LogTimestamp{Id: 3, Timestamp: 1619541249, State: FinishFlag})
-
-	exitCode := m.Run()
-
-	fmt.Println("Running teardown after tests")
-
-	os.Exit(exitCode)
+type mockReader struct {
+	data []byte
+	readErr error
 }
 
-// --- FindTimestamps ---
-
-func TestFindTimestamps(t *testing.T) {
-	// Given
-
-	// When
-	resultTimestamps := make([]LogTimestamp, 0)
-	resultLeftover := findTimestamps(mockDataBytes, &resultTimestamps)
-
-	// Then
-	if len(resultTimestamps) < 1 || len(resultTimestamps) != len(mockDataTimestamps) {
-		fmt.Println(mockDataBytes)
-		t.Errorf("Timestamps length Expected %v, got %v", len(mockDataTimestamps), len(resultTimestamps))
+func (m *mockReader) Read(p []byte) (n int, err error) {
+	if m.readErr != nil {
+		return 0, m.readErr
 	}
-	if string(resultLeftover) != "" {
-		t.Errorf("Leftover Expected %v, got %v", "nothing", resultLeftover)
+	if len(m.data) == 0 {
+		return n, io.EOF
 	}
-	if (len(resultTimestamps) == len(mockDataTimestamps)) {
-		for i, expected := range mockDataTimestamps {
-			if resultTimestamps[i] != expected {
-				t.Errorf("Timestamps Expected %v, got %v", expected, resultTimestamps[i])
-			}
+
+	n = copy(p, m.data)
+	m.data = m.data[n:]
+	return n, nil
+}
+
+// --- Tests ---
+
+func TestReadFile(t *testing.T) {
+	t.Run("Happy path", func(t *testing.T) {
+		// Given
+		testedBytes := []byte(
+			"{\"id\": 1, \"state\": \"STARTED\", \"timestamp\": 1619541248}, " +
+			"{\"id\": 3, \"state\": \"FINISHED\", \"timestamp\": 1619541249}")
+		testedReader := &mockReader{data: testedBytes}
+		expectedTimestamps := []LogTimestamp {
+			{Id: 1, Timestamp: 1619541248, State: StartFlag},
+			{Id: 3, Timestamp: 1619541249, State: FinishFlag}}
+		resultCh := make(chan LogTimestamp, 1024)
+		
+		// When
+		err := readFile(testedReader, resultCh, 1024)
+		close(resultCh)
+
+		// Then
+		receivedTimestamps := make([]LogTimestamp, 0)
+		for ts := range resultCh {
+			receivedTimestamps = append(receivedTimestamps, ts)
 		}
-	}
+		if err != nil || !reflect.DeepEqual(receivedTimestamps, expectedTimestamps) {
+			t.Errorf("Error: %v, Timestamps mismatch. Expected %v, got %v", err, expectedTimestamps, receivedTimestamps)
+		}
+	})
+
+	t.Run("Split between buffers", func(t *testing.T) {
+		// Given
+		testedBytes := []byte(
+			"{\"id\": 1, \"state\": \"STARTED\", \"timestamp\": 1619541248}, " +
+			"{\"id\": 3, \"state\": \"FINISHED\", \"timestamp\": 1619541249}")
+		testedReader := &mockReader{data: testedBytes}
+		expectedTimestamps := []LogTimestamp {
+			{Id: 1, Timestamp: 1619541248, State: StartFlag},
+			{Id: 3, Timestamp: 1619541249, State: FinishFlag}}
+		resultCh := make(chan LogTimestamp, 1024)
+		
+		// When
+		err := readFile(testedReader, resultCh, 70)
+		close(resultCh)
+
+		// Then
+		receivedTimestamps := make([]LogTimestamp, 0)
+		for ts := range resultCh {
+			receivedTimestamps = append(receivedTimestamps, ts)
+		}
+		if err != nil || !reflect.DeepEqual(receivedTimestamps, expectedTimestamps) {
+			t.Errorf("Error: %v, Timestamps mismatch. Expected %v, got %v", err, expectedTimestamps, receivedTimestamps)
+		}
+	})
+
+	t.Run("Small buffer", func(t *testing.T) {
+		// Given
+		testedBytes := []byte(
+			"{\"id\": 1, \"state\": \"STARTED\", \"timestamp\": 1619541248}, " +
+			"{\"id\": 3, \"state\": \"FINISHED\", \"timestamp\": 1619541249}")
+		testedReader := &mockReader{data: testedBytes}
+		expectedTimestamps := []LogTimestamp {
+			{Id: 1, Timestamp: 1619541248, State: StartFlag},
+			{Id: 3, Timestamp: 1619541249, State: FinishFlag}}
+		resultCh := make(chan LogTimestamp, 1024)
+		
+		// When
+		err := readFile(testedReader, resultCh, 5)
+		close(resultCh)
+
+		// Then
+		receivedTimestamps := make([]LogTimestamp, 0)
+		for ts := range resultCh {
+			receivedTimestamps = append(receivedTimestamps, ts)
+		}
+		if err != nil || !reflect.DeepEqual(receivedTimestamps, expectedTimestamps) {
+			t.Errorf("Error: %v, Timestamps mismatch. Expected %v, got %v", err, expectedTimestamps, receivedTimestamps)
+		}
+	})
+
+	t.Run("Malformed file", func(t *testing.T) {
+		// Given
+		testedBytes := []byte(
+			"{\"id\": 1, \"state\": \"STARTED\", \"p\": 1619541248}, " +
+			"{\"id\": 3, \"state\": \"SHED\", \"")
+		testedReader := &mockReader{data: testedBytes}
+		expectedTimestamps := []LogTimestamp {}
+		resultCh := make(chan LogTimestamp, 1024)
+		
+		// When
+		err := readFile(testedReader, resultCh, 5)
+		close(resultCh)
+
+		// Then
+		receivedTimestamps := make([]LogTimestamp, 0)
+		for ts := range resultCh {
+			receivedTimestamps = append(receivedTimestamps, ts)
+		}
+		if err != nil || !reflect.DeepEqual(receivedTimestamps, expectedTimestamps) {
+			t.Errorf("Error: %v, Timestamps mismatch. Expected %v, got %v", err, expectedTimestamps, receivedTimestamps)
+		}
+	})
 }
 
-func TestFindTimestampsWithLeftover(t *testing.T) {
-	// Given
-	bytes := []byte(`{"Id": 1, "STATE": "STARTED", "tiMesTamP": 1619541248} , {"iD": 3, "STatE": "`)
-	resultTimestamps := make([]LogTimestamp, 0)
-	expectedTimestamps := make([]LogTimestamp, 0)
+func TestUnmarshalLogTimestamps(t *testing.T) {
+	t.Run("Happy path", func(t *testing.T) {
+		// Given
+		testedBytes := []byte(
+			"{\"id\": 1, \"state\": \"STARTED\", \"timestamp\": 1619541248}, " +
+			"{\"id\": 3, \"state\": \"FINISHED\", \"timestamp\": 1619541249}")
+		expectedTimestamps := []LogTimestamp {
+			{Id: 1, Timestamp: 1619541248, State: StartFlag},
+			{Id: 3, Timestamp: 1619541249, State: FinishFlag}}
+		resultCh := make(chan LogTimestamp, len(expectedTimestamps))
 
-	expectedTimestamps = append(expectedTimestamps, LogTimestamp{Id: 1, Timestamp: 1619541248, State: StartFlag})
-	expectedLeftover := []byte(`{"iD": 3, "STatE": "`)
+		// When
+		resultLeftover := unmarshalLogTimestamps(testedBytes, resultCh)
 
-	// When
-	resultLeftover := findTimestamps(bytes, &resultTimestamps)
+		// Then
+		close(resultCh)
+		if !bytes.Equal(resultLeftover, []byte{}) {
+			t.Errorf("Leftover bytes mismatch. Expected %s, got %s", "", resultLeftover)
+		}
 
-	// Then
-	if len(resultTimestamps) < 1 || resultTimestamps[0] != expectedTimestamps[0] || len(resultTimestamps) > 1 {
-		t.Errorf("Found timestamps Expected %v, got %v", expectedTimestamps, resultTimestamps)
-	}
-	if string(resultLeftover) != string(expectedLeftover) {
-		t.Errorf("Leftover Expected %v, got %v", expectedLeftover, resultLeftover)
-	}
+		receivedTimestamps := make([]LogTimestamp, 0)
+		for ts := range resultCh {
+			receivedTimestamps = append(receivedTimestamps, ts)
+		}
+
+		if !reflect.DeepEqual(receivedTimestamps, expectedTimestamps) {
+			t.Errorf("Timestamps mismatch. Expected %v, got %v", expectedTimestamps, receivedTimestamps)
+		}
+	})
+
+	t.Run("With leftover", func(t *testing.T) {
+		// Given
+		testedBytes := []byte(
+			"{\"id\": 1, \"state\": \"STARTED\", \"timestamp\": 1619541248}, " +
+			"{\"id\": 3, \"st")
+		expectedLeftover := []byte("{\"id\": 3, \"st")
+		expectedTimestamps := []LogTimestamp {{Id: 1, Timestamp: 1619541248, State: StartFlag}}
+		resultCh := make(chan LogTimestamp, len(expectedTimestamps))
+
+		// When
+		resultLeftover := unmarshalLogTimestamps(testedBytes, resultCh)
+
+		// Then
+		close(resultCh)
+		if !bytes.Equal(resultLeftover, expectedLeftover) {
+			t.Errorf("Leftover bytes mismatch. Expected %s, got %s", "", resultLeftover)
+		}
+
+		receivedTimestamps := make([]LogTimestamp, 0)
+		for ts := range resultCh {
+			receivedTimestamps = append(receivedTimestamps, ts)
+		}
+
+		if !reflect.DeepEqual(receivedTimestamps, expectedTimestamps) {
+			t.Errorf("Timestamps mismatch. Expected %v, got %v", expectedTimestamps, receivedTimestamps)
+		}
+	})
+
+	t.Run("With funny data", func(t *testing.T) {
+		// Given
+		testedBytes := []byte(
+			"{\"id\": 1,\"sTAte\": \"started\", \"tIMEstamp\": 1619541248}, " +
+			"{\"ID\":3,   \"staTE\": \"FiNisheD\",\"timeSTAMP\": 1619541249  } ,")
+		expectedTimestamps := []LogTimestamp {
+			{Id: 1, Timestamp: 1619541248, State: StartFlag},
+			{Id: 3, Timestamp: 1619541249, State: FinishFlag}}
+		resultCh := make(chan LogTimestamp, len(expectedTimestamps))
+
+		// When
+		resultLeftover := unmarshalLogTimestamps(testedBytes, resultCh)
+
+		// Then
+		close(resultCh)
+		if !bytes.Equal(resultLeftover, []byte{}) {
+			t.Errorf("Leftover bytes mismatch. Expected %s, got %s", "", resultLeftover)
+		}
+
+		receivedTimestamps := make([]LogTimestamp, 0)
+		for ts := range resultCh {
+			receivedTimestamps = append(receivedTimestamps, ts)
+		}
+
+		if !reflect.DeepEqual(receivedTimestamps, expectedTimestamps) {
+			t.Errorf("Timestamps mismatch. Expected %v, got %v", expectedTimestamps, receivedTimestamps)
+		}
+	})
+
+
+	t.Run("Test malformed entry", func(t *testing.T) {
+		// Given
+		testedBytes := []byte(
+			"{\"id\": 1, \"state\": \"STARTED\", \"timestamp\": 1619541248}, " +
+			"{\"id\": 3, \"st\": \"FINISHED\", \"timestamp\": 1619541249}")
+		expectedTimestamps := []LogTimestamp {{Id: 1, Timestamp: 1619541248, State: StartFlag}}
+		resultCh := make(chan LogTimestamp, len(expectedTimestamps))
+
+		// When
+		resultLeftover := unmarshalLogTimestamps(testedBytes, resultCh)
+
+		// Then
+		close(resultCh)
+		if !bytes.Equal(resultLeftover, []byte{}) {
+			t.Errorf("Leftover bytes mismatch. Expected %s, got %s", "", resultLeftover)
+		}
+
+		receivedTimestamps := make([]LogTimestamp, 0)
+		for ts := range resultCh {
+			receivedTimestamps = append(receivedTimestamps, ts)
+		}
+
+		if !reflect.DeepEqual(receivedTimestamps, expectedTimestamps) {
+			t.Errorf("Timestamps mismatch. Expected %v, got %v", expectedTimestamps, receivedTimestamps)
+		}
+	})
 }
 
-// --- UnmarshalTimestamp ---
+func TestBytesToLogTimestamp(t *testing.T) {
+	t.Run("Happy path", func(t *testing.T) {
+		// Given
+		timestamp := time.Now().Unix()
+		str := fmt.Sprintf("{\"id\": 1, \"state\": \"STARTED\", \"timestamp\": %d}", timestamp)
+		bytes := []byte(str)
 
-func TestUnmarshalTimestamp(t *testing.T) {
-	// Given
-	id := 3
-	timestamp := time.Now().Unix()
-	state := "sTaRtEd"
-	stringified := fmt.Sprintf("{\"Id\":  %d, \"STATE\":\"%s\",\"TimeSTaMp\": %d}", id, state, timestamp)
+		expected := LogTimestamp {
+			Id: 1,
+			Timestamp: timestamp,
+			State: StartFlag,
+		}
 
-	expected := LogTimestamp {
-		Id: id,
-		Timestamp: timestamp,
-		State: StartFlag,
-	}
+		// When
+		result, err := bytesToLogTimestamp(bytes)
 
-	bytes := []byte(stringified)
+		// Then
+		if result != expected {
+			t.Errorf("Expected %v, got %v", expected, result)
+		}
+		if err != nil {
+			t.Errorf("Expected nil error, got %v", err)
+		}
+	})
 
-	// When
-	result, err := unmarshalTimestamp(bytes)
+	t.Run("Test malformed id", func(t *testing.T) {
+		// Given
+		timestamp := time.Now().Unix()
+		str := fmt.Sprintf("{\"d\": 1, \"state\": \"STARTED\", \"timestamp\": %d}", timestamp)
+		bytes := []byte(str)
 
-	// Then
-	if result != expected {
-		t.Errorf("Expected %v, got %v", expected, result)
-	}
-	if err != nil {
-		t.Errorf("Expected nil error, got %v", err)
-	}
-}
+		// When
+		result, err := bytesToLogTimestamp(bytes)
 
-func TestUnmarshalTimestampError(t *testing.T) {
-	// Given
-	stringified := "{\"d\":  3, \"StE\":\"STARTED\", \"tiMesTamP\": 100}"
-	bytes := []byte(stringified)
+		// Then
+		if result != (LogTimestamp{}) || err == nil {
+			t.Errorf("Expected empty LogTimestamp and non-nil error, got %v and %v", result, err)
+		}
+	})
 
-	// When
-	result, err := unmarshalTimestamp(bytes)
+	t.Run("Test malformed id 2", func(t *testing.T) {
+		// Given
+		timestamp := time.Now().Unix()
+		str := fmt.Sprintf("{\"id\": \"1\", \"state\": \"STARTED\", \"timestamp\": %d}", timestamp)
+		bytes := []byte(str)
 
-	// Then
-	if result != (LogTimestamp{}) || err == nil {
-		t.Errorf("Expected empty LogTimestamp and non-nil error, got %v and %v", result, err)
-	}
+		// When
+		result, err := bytesToLogTimestamp(bytes)
+
+		// Then
+		if result != (LogTimestamp{}) || err == nil {
+			t.Errorf("Expected empty LogTimestamp and non-nil error, got %v and %v", result, err)
+		}
+	})
+
+	t.Run("Test malformed state", func(t *testing.T) {
+		// Given
+		timestamp := time.Now().Unix()
+		str := fmt.Sprintf("{\"id\": 1, \"ste\": \"STARTED\", \"timestamp\": %d}", timestamp)
+		bytes := []byte(str)
+
+		// When
+		result, err := bytesToLogTimestamp(bytes)
+
+		// Then
+		if result != (LogTimestamp{}) || err == nil {
+			t.Errorf("Expected empty LogTimestamp and non-nil error, got %v and %v", result, err)
+		}
+	})
+
+	t.Run("Test malformed state 2", func(t *testing.T) {
+		// Given
+		timestamp := time.Now().Unix()
+		str := fmt.Sprintf("{\"id\": 1, \"state\": STARTED, \"timestamp\": %d}", timestamp)
+		bytes := []byte(str)
+
+		// When
+		result, err := bytesToLogTimestamp(bytes)
+
+		// Then
+		if result != (LogTimestamp{}) || err == nil {
+			t.Errorf("Expected empty LogTimestamp and non-nil error, got %v and %v", result, err)
+		}
+	})
+
+	t.Run("Test malformed state 3", func(t *testing.T) {
+		// Given
+		timestamp := time.Now().Unix()
+		str := fmt.Sprintf("{\"id\": 1, \"state\": \"START\", \"timestamp\": %d}", timestamp)
+		bytes := []byte(str)
+
+		// When
+		result, err := bytesToLogTimestamp(bytes)
+
+		// Then
+		if result != (LogTimestamp{}) || err == nil {
+			t.Errorf("Expected empty LogTimestamp and non-nil error, got %v and %v", result, err)
+		}
+	})
+
+	t.Run("Test malformed timestamp", func(t *testing.T) {
+		// Given
+		timestamp := time.Now().Unix()
+		str := fmt.Sprintf("{\"id\": 1, \"state\": \"STARTED\", \"timeamp\": %d}", timestamp)
+		bytes := []byte(str)
+
+		// When
+		result, err := bytesToLogTimestamp(bytes)
+
+		// Then
+		if result != (LogTimestamp{}) || err == nil {
+			t.Errorf("Expected empty LogTimestamp and non-nil error, got %v and %v", result, err)
+		}
+	})
+
+	t.Run("Test malformed timestamp 2", func(t *testing.T) {
+		// Given
+		timestamp := time.Now().Unix()
+		str := fmt.Sprintf("{\"id\": 1, \"state\": \"STARTED\", \"timestamp\": \"%d\"}", timestamp)
+		bytes := []byte(str)
+
+		// When
+		result, err := bytesToLogTimestamp(bytes)
+
+		// Then
+		if result != (LogTimestamp{}) || err == nil {
+			t.Errorf("Expected empty LogTimestamp and non-nil error, got %v and %v", result, err)
+		}
+	})
+}	
+
+func TestCollectTimestamps(t *testing.T) {
+	t.Run("Happy path", func(t *testing.T) {
+		// Given
+		timestampStart := time.Time.Add(time.Now(), time.Second * 17).Unix()
+		timestampFinish := time.Time.Add(time.Now(), time.Second * 90).Unix()
+
+		expectedLogs := []Log {
+			{Id: 3, TimestampStart: time.Unix(timestampStart, 0), TimestampFinish: time.Unix(timestampFinish, 0)},
+			{Id: 1, TimestampStart: time.Unix(timestampStart, 0), TimestampFinish: time.Unix(timestampFinish, 0)},
+		}
+
+		testStamps := []LogTimestamp {
+			{Id: 3, Timestamp: timestampStart, State: StartFlag},
+			{Id: 1, Timestamp: timestampStart, State: StartFlag},
+			{Id: 3, Timestamp: timestampFinish, State: FinishFlag},
+			{Id: 1, Timestamp: timestampFinish, State: FinishFlag},
+		}
+
+		tsCh := make(chan LogTimestamp)
+		logCh := make(chan Log, len(testStamps))
+
+		var wg sync.WaitGroup
+
+		// When
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			collectTimestamps(tsCh, logCh)
+		}()
+
+		for _, ts := range testStamps {
+			tsCh <- ts
+		}
+
+		close(tsCh)
+
+		// Then
+		wg.Wait()
+
+		close(logCh)
+
+		receivedLogs := make([]Log, 0)
+		for log := range logCh {
+			receivedLogs = append(receivedLogs, log)
+		}
+
+		if !reflect.DeepEqual(receivedLogs, expectedLogs) {
+			t.Errorf("Logs mismatch. Expected %v, got %v", expectedLogs, receivedLogs)
+		}
+	})
+
+	t.Run("Missing matches", func(t *testing.T) {
+		// Given
+		timestampStart := time.Time.Add(time.Now(), time.Second * 17).Unix()
+		timestampFinish := time.Time.Add(time.Now(), time.Second * 90).Unix()
+
+		expectedLogs := []Log {
+			{Id: 1, TimestampStart: time.Unix(timestampStart, 0), TimestampFinish: time.Unix(timestampFinish, 0)},
+		}
+
+		testStamps := []LogTimestamp {
+			{Id: 3, Timestamp: timestampStart, State: StartFlag},
+			{Id: 1, Timestamp: timestampStart, State: StartFlag},
+			{Id: 7, Timestamp: timestampFinish, State: FinishFlag},
+			{Id: 1, Timestamp: timestampFinish, State: FinishFlag},
+		}
+
+		tsCh := make(chan LogTimestamp)
+		logCh := make(chan Log, len(testStamps))
+
+		var wg sync.WaitGroup
+
+		// When
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			collectTimestamps(tsCh, logCh)
+		}()
+
+		for _, ts := range testStamps {
+			tsCh <- ts
+		}
+
+		close(tsCh)
+
+		// Then
+		wg.Wait()
+
+		close(logCh)
+
+		receivedLogs := make([]Log, 0)
+		for log := range logCh {
+			receivedLogs = append(receivedLogs, log)
+		}
+
+		if !reflect.DeepEqual(receivedLogs, expectedLogs) {
+			t.Errorf("Logs mismatch. Expected %v, got %v", expectedLogs, receivedLogs)
+		}
+	})
+
+	t.Run("No entries", func(t *testing.T) {
+		// Given
+		tsCh := make(chan LogTimestamp)
+		logCh := make(chan Log)
+
+		var wg sync.WaitGroup
+
+		// When
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			collectTimestamps(tsCh, logCh)
+		}()
+
+		close(tsCh)
+
+		// Then
+		wg.Wait()
+
+		close(logCh)
+
+		receivedLogs := make([]Log, 0)
+		for log := range logCh {
+			receivedLogs = append(receivedLogs, log)
+		}
+
+		if !reflect.DeepEqual(receivedLogs, []Log{}) {
+			t.Errorf("Logs mismatch. Expected %v, got %v", []Log{}, receivedLogs)
+		}
+	})
 }
