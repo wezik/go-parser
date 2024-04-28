@@ -10,8 +10,8 @@ type Log struct {
 
 type LogTimestamp struct {
 	Id        int
-	Timestamp int64 
 	State     string
+	Timestamp int64 
 }
 
 const (
