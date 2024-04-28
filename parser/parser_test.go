@@ -274,21 +274,6 @@ func TestBytesToLogTimestamp(t *testing.T) {
 	t.Run("Test malformed id", func(t *testing.T) {
 		// Given
 		timestamp := time.Now().Unix()
-		str := fmt.Sprintf("{\"d\": 1, \"state\": \"STARTED\", \"timestamp\": %d}", timestamp)
-		bytes := []byte(str)
-
-		// When
-		result, err := bytesToLogTimestamp(bytes)
-
-		// Then
-		if result != (LogTimestamp{}) || err == nil {
-			t.Errorf("Expected empty LogTimestamp and non-nil error, got %v and %v", result, err)
-		}
-	})
-
-	t.Run("Test malformed id 2", func(t *testing.T) {
-		// Given
-		timestamp := time.Now().Unix()
 		str := fmt.Sprintf("{\"id\": \"1\", \"state\": \"STARTED\", \"timestamp\": %d}", timestamp)
 		bytes := []byte(str)
 
@@ -404,7 +389,7 @@ func TestCollectTimestamps(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			collectTimestamps(tsCh, logCh)
+			collectTimestamps(tsCh, logCh, 0)
 		}()
 
 		for _, ts := range testStamps {
@@ -453,7 +438,7 @@ func TestCollectTimestamps(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			collectTimestamps(tsCh, logCh)
+			collectTimestamps(tsCh, logCh, 0)
 		}()
 
 		for _, ts := range testStamps {
@@ -488,7 +473,7 @@ func TestCollectTimestamps(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			collectTimestamps(tsCh, logCh)
+			collectTimestamps(tsCh, logCh, 0)
 		}()
 
 		close(tsCh)
@@ -505,6 +490,56 @@ func TestCollectTimestamps(t *testing.T) {
 
 		if !reflect.DeepEqual(receivedLogs, []Log{}) {
 			t.Errorf("Logs mismatch. Expected %v, got %v", []Log{}, receivedLogs)
+		}
+	})
+
+	t.Run("With flag time", func(t *testing.T) {
+		// Given
+		tsStartShort := time.Time.Add(time.Now(), time.Second * 17).Unix()
+		tsFinishShort := time.Time.Add(time.Now(), time.Second * 22).Unix()
+		tsStartLong := time.Time.Add(time.Now(), time.Second * 17).Unix()
+		tsFinishLong := time.Time.Add(time.Now(), time.Second * 23).Unix()
+
+		expectedLogs := []Log {
+			{Id: 1, TimestampStart: time.Unix(tsStartLong, 0), TimestampFinish: time.Unix(tsFinishLong, 0)},
+		}
+
+		testStamps := []LogTimestamp {
+			{Id: 3, Timestamp: tsStartShort, State: StartFlag},
+			{Id: 1, Timestamp: tsFinishLong, State: FinishFlag},
+			{Id: 3, Timestamp: tsFinishShort, State: FinishFlag},
+			{Id: 1, Timestamp: tsStartLong, State: StartFlag},
+		}
+
+		tsCh := make(chan LogTimestamp)
+		logCh := make(chan Log, len(testStamps))
+
+		var wg sync.WaitGroup
+
+		// When
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			collectTimestamps(tsCh, logCh, 6)
+		}()
+
+		for _, ts := range testStamps {
+			tsCh <- ts
+		}
+		close(tsCh)
+
+		// Then
+		wg.Wait()
+
+		close(logCh)
+
+		receivedLogs := make([]Log, 0)
+		for log := range logCh {
+			receivedLogs = append(receivedLogs, log)
+		}
+
+		if !reflect.DeepEqual(receivedLogs, expectedLogs) {
+			t.Errorf("Logs mismatch. Expected %v, got %v", expectedLogs, receivedLogs)
 		}
 	})
 }

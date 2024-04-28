@@ -26,16 +26,24 @@ func Parse(fileName string) error {
 
 	go func() {
 		defer close(logsCh)
-		collectTimestamps(timestampsCh, logsCh)
+		collectTimestamps(timestampsCh, logsCh, 8)
 	}()
 
 	i := 0
+	fmt.Println("Benchmark start")
+	start := time.Now()
+	fmt.Println("Processing logs...")
 	for log := range logsCh {
 		i++
 		// Placeholder consume for now
 		_ = log
+		if (i % 16384 == 0) {
+			fmt.Print("\rProcessed ", i, " logs")
+		}
 	}
-	fmt.Println("Found", i, "logs")
+	fmt.Print("\rFound ", i, " logs flagged over 8 seconds\n")
+	fmt.Println("Benchmark end")
+	fmt.Println("Elapsed time: ", time.Since(start))
 
 	return nil
 }
@@ -65,25 +73,26 @@ func readFile(reader io.Reader, ch chan LogTimestamp, bufferSize int) error {
 	return err
 }
 
-func collectTimestamps(receiveCh chan LogTimestamp, sendCh chan Log) {
+func collectTimestamps(receiveCh chan LogTimestamp, sendCh chan Log, delayFlag int64) {
 	tsMap := make(map[int] LogTimestamp)
 	for tsFromCh := range receiveCh {
 		if tsFromMap, found := tsMap[tsFromCh.Id]; found {
-			var tsStarted time.Time
-			var tsFinished time.Time
-			if tsFromMap.State == StartFlag {
-				tsStarted = time.Unix(tsFromMap.Timestamp, 0)
-				tsFinished = time.Unix(tsFromCh.Timestamp, 0)
-			} else {
-				tsStarted = time.Unix(tsFromCh.Timestamp, 0)
-				tsFinished = time.Unix(tsFromMap.Timestamp, 0)
+			delay := tsFromCh.Timestamp - tsFromMap.Timestamp
+			if delay >= delayFlag || delay <= (delayFlag * -1) {
+				var tsStart, tsFinish time.Time
+				if tsFromMap.State == StartFlag {
+					tsStart = time.Unix(tsFromMap.Timestamp, 0)
+					tsFinish = time.Unix(tsFromCh.Timestamp, 0)
+				} else {
+					tsStart = time.Unix(tsFromCh.Timestamp, 0)
+					tsFinish = time.Unix(tsFromMap.Timestamp, 0)
+				}
+				sendCh <- Log {
+					Id: tsFromCh.Id,
+					TimestampStart: tsStart,
+					TimestampFinish: tsFinish,
+				}
 			}
-			log := Log {
-				Id: tsFromCh.Id,
-				TimestampStart: tsStarted,
-				TimestampFinish: tsFinished,
-			}
-			sendCh <- log
 			delete(tsMap, tsFromMap.Id)
 		} else {
 			tsMap[tsFromCh.Id] = tsFromCh 
